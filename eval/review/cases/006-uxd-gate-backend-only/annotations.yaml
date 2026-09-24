@@ -1,0 +1,22 @@
+state: open
+
+labels:
+  required: []
+  forbidden:
+    - ready-for-merge
+  risk_label_required: true
+
+findings:
+  required: []
+  forbidden:
+    - pf-review
+    - pf-state-audit
+    - pf-i18n-audit
+    - pf-adversarial-review
+
+max_turns: 60
+max_cost_usd: 6.00
+
+review_expectations: |
+  The PR changes only backend repository code. The UXD dimension should be
+  skipped and no UXD finding categories should appear in the review.

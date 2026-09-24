@@ -46,6 +46,7 @@ relative to this file.
 | `style-conventions`    | parallel   | Repo-specific naming, error-handling idioms, API shape, code organization                                               |
 | `docs-currency`        | parallel   | Documentation staleness (follows docs-review skill inline)                                                              |
 | `cross-repo-contracts` | parallel   | API contract breakage affecting other repos (conditional)                                                               |
+| `uxd-review`           | parallel   | UXD evidence review plus conditional PatternFly checks (conditional)                                                   |
 | `risk-assessment`      | parallel   | Composite risk score (metadata, git history, linked issue)                                                              |
 | `challenger`           | sequential | Adversarial challenge of findings, false-positive removal, deduplication                                                |
 
@@ -231,6 +232,7 @@ review dimension using category as the key:
 | style-conventions    | `naming-convention`, `error-handling-idiom`, `api-shape`, `code-organization`, `doc-style`, `pattern-inconsistency`                                                                                                                                                      |
 | docs-currency        | `stale-doc`, `missing-doc`, `incorrect-doc`, `incomplete-doc`                                                                                                                                                                                                            |
 | cross-repo-contracts | `breaking-api`, `breaking-schema`, `breaking-config`, `breaking-cli`, `missing-deprecation`, `missing-version-bump`, `backward-incompatible`                                                                                                                             |
+| uxd-review           | `uxd-evaluate-design-heuristics`, `uxd-research-heuristic-eval`, `pf-review`, `pf-state-audit`, `pf-i18n-audit`, `pf-adversarial-review`                                                                                                                                 |
 
 Findings with unrecognized categories go to the nearest matching
 dimension by keyword, or to `correctness` as a fallback.
@@ -279,6 +281,12 @@ dimensions are relevant:
 - Linked issues exist to verify against, or any non-trivial change →
   `intent-coherence`
 - Repository has documentation files → `docs-currency`
+- Changed files include interface code or design artifacts — for example
+  `*.tsx`, `*.jsx`, `*.vue`, `*.svelte`, `*.html`, `*.css`, `*.scss`,
+  `*.less`, or files under `components/`, `views/`, `pages/`, `screens/`,
+  `ui/`, `frontend/`, or `web/` → `uxd-review`. The UXD branch requires
+  screenshots, rendered artifacts, or another explicit visual evidence source;
+  the PatternFly branch additionally requires an `@patternfly/*` dependency.
 - Always included → `style-conventions`
 
 #### 3c. Select sub-agents
@@ -288,10 +296,16 @@ All selected sub-agents run in parallel — `risk-assessment` (composed
 in step 3c-2) among them — except `challenger`, which, when step 6d
 dispatches it, runs by itself after all other sub-agents have finished.
 
-**Dispatch sub-agents based on the classification — typically 3-6.**
+If `FULLSEND_DISABLE_UXD_REVIEW` is exactly `true`, do not select or
+dispatch `uxd-review`, even when the changed files match the UXD/PatternFly
+criteria. This is an evaluation/control flag only; it is not enabled in the
+normal review workflow. Record the omission in the internal run context so
+the final result can be compared against a run where the dimension is enabled.
+
+**Dispatch sub-agents based on the classification — typically 3-7.**
 The orchestrator should auto-select which sub-agents are relevant for
 the specific change rather than dispatching all agents by default. A
-complex PR that triggers all conditions legitimately needs all 6.
+complex PR that triggers all conditions legitimately needs all 7.
 
 **Always included:** `correctness` and `style-conventions`.
 
@@ -305,6 +319,11 @@ complex PR that triggers all conditions legitimately needs all 6.
 - `cross-repo-contracts` — when public APIs, exported interfaces,
   schemas, or CLI args are modified. Skip entirely for PRs that don't
   touch public API surface.
+- `uxd-review` — when changed files match the interface/design criteria in
+  step 3b. Run its generic UXD branch only with the evidence required by the
+  source UXD skill; run its PatternFly branch only when the repository uses
+  PatternFly. Skip for backend-only, infrastructure-only, documentation-only,
+  and mechanical changes.
 
 **Re-review dispatch (prior-finding-aware):** When
 `PRIOR_REVIEW_PROVENANCE` is `app-verified` and prior findings exist
@@ -314,7 +333,8 @@ complex PR that triggers all conditions legitimately needs all 6.
    is always full scope — see item 3) — dispatch at normal scope
    (unchanged behavior). These sub-agents verify the fixes.
 2. **Conditional sub-agents WITHOUT prior findings** (`security`,
-   `intent-coherence`, `docs-currency`, `cross-repo-contracts`) — skip
+   `intent-coherence`, `docs-currency`, `cross-repo-contracts`,
+   `uxd-review`) — skip
    dispatch unless the files changed since the prior review
    (`changed_since_prior`, step 3d) independently qualify them. On
    re-review these tests **override** step 3b's triggers for these four
@@ -338,6 +358,9 @@ complex PR that triggers all conditions legitimately needs all 6.
      criteria (auth/permissions/secrets/config/data-handling for
      `security`; public APIs, exported interfaces, schemas, or CLI
      surface for `cross-repo-contracts`).
+   - `uxd-review` — re-qualify only if `changed_since_prior` includes
+     interface or design files matching the step 3b criteria. Within the
+     sub-agent, apply the UXD and PatternFly gates independently.
 
    If the incremental delta cannot be enumerated — `changed_since_prior`
    is `"all"` (the step 2a fallback for a failed compare, >250 commits,
@@ -369,6 +392,7 @@ normal scope (current behavior preserved).
 | Typo fix in README                                       | correctness, style-conventions                                                   |
 | Bug fix in auth middleware                               | correctness, security, style-conventions, intent-coherence                       |
 | New API endpoint with tests                              | correctness, security, style-conventions, cross-repo-contracts                   |
+| UI component or interaction change                         | correctness, style-conventions, uxd-review, docs-currency                       |
 | Large refactor across packages                           | correctness, style-conventions, intent-coherence, docs-currency                  |
 | CI/CD pipeline change                                    | correctness, security, style-conventions, intent-coherence                       |
 | DB migration + API change                                | correctness, security, style-conventions, cross-repo-contracts, docs-currency    |
@@ -708,7 +732,7 @@ follows:
    knowing which files the triage pass flagged.
 
 3. **Other sub-agents** (`intent-coherence`, `style-conventions`,
-   `docs-currency`, `cross-repo-contracts`): Receive the standard
+   `docs-currency`, `cross-repo-contracts`, `uxd-review`): Receive the standard
    context package without prioritization. These dimensions are not
    affected by the security triage classification.
 
@@ -854,6 +878,32 @@ of findings in the standard format:
 }
 ```
 
+#### 5a. UXD/PatternFly adapter gates
+
+Before synthesizing `uxd-review` findings, enforce these gates from the PR
+metadata and changed files. Do not rely on the sub-agent's category choice
+alone:
+
+1. **UXD evidence gate:** If the PR has no screenshots, rendered artifacts, or
+   explicit live-interface inspection result, discard every finding whose
+   category is `uxd-evaluate-design-heuristics` or
+   `uxd-research-heuristic-eval`. Source code alone is insufficient evidence
+   for those visual-review categories.
+2. **PatternFly gate:** Retain PatternFly findings only when the repository has
+   an `@patternfly/*` dependency and the PR changes supported interface files
+   (`.tsx`, `.jsx`, `.ts`, `.css`, or `.scss`).
+3. **Destructive interaction rule:** When gated PatternFly code renders a
+   dangerous/destructive control that directly invokes a destructive callback
+   without confirmation, the final findings MUST include one
+   `pf-adversarial-review` finding citing the changed file and line. Its
+   remediation must recommend explicit confirmation and appropriate pending,
+   failure, or recovery feedback. If the sub-agent used another UXD category
+   for the same evidence, preserve the evidence but normalize that finding's
+   category to `pf-adversarial-review` rather than dropping it.
+4. **Category allowlist:** Final findings from this dimension may use only
+   `uxd-evaluate-design-heuristics`, `uxd-research-heuristic-eval`, `pf-review`,
+   `pf-state-audit`, `pf-i18n-audit`, or `pf-adversarial-review`.
+
 If a sub-agent fails to return findings (timeout, error, empty
 response), record a finding noting the gap. The severity depends on
 the sub-agent's tier:
@@ -864,7 +914,8 @@ the sub-agent's tier:
   than no review at all. A high finding ensures the outcome is at
   minimum `request-changes` (see step 6f).
 - **Sonnet-tier sub-agents** (`intent-coherence`,
-  `style-conventions`, `docs-currency`, `cross-repo-contracts`):
+  `style-conventions`, `docs-currency`, `cross-repo-contracts`,
+  `uxd-review`):
   record an **info**-level finding.
 
 ```json

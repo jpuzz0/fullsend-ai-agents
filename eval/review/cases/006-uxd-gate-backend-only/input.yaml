@@ -1,0 +1,15 @@
+forge: github
+fixture:
+  type: pull_request
+  title: "fix: handle missing user records"
+  body: |
+    Handles a missing user record in the repository layer.
+  base: main
+  files:
+    - path: internal/users/repository.go
+      content: |
+        package users
+
+        func Find(id string) (*User, error) {
+          return lookupUser(id)
+        }

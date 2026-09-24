@@ -1,0 +1,30 @@
+state: open
+
+labels:
+  required: []
+  forbidden:
+    - ready-for-merge
+  # Risk labeling is evaluated by the broader review suite. This focused
+  # UXD/PatternFly comparison should not fail when the model omits an
+  # otherwise unrelated risk assessment.
+  risk_label_required: false
+
+findings:
+  required:
+    - pf-state-audit
+    - pf-adversarial-review
+  forbidden: []
+
+max_turns: 80
+max_cost_usd: 8.00
+
+review_expectations: |
+  This is a recognizable admin user-management change: a table adds a
+  destructive Delete user action. The handler runs immediately on click with
+  no confirmation, pending/disabled state, success or failure feedback, or
+  recovery path. It also handles loading but provides no empty state when the
+  user list has no rows.
+  The review should identify the missing empty/error/pending state coverage as
+  [pf-state-audit] and the missing confirmation or recovery protection as
+  [pf-adversarial-review], with evidence from UserTable.tsx. The generic UXD
+  branch should be skipped because this fixture supplies no visual evidence.
